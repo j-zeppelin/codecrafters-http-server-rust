@@ -26,6 +26,7 @@ impl ResponseBuilder<Missing> {
 }
 
 impl<Status> ResponseBuilder<Status> {
+    #[allow(dead_code)]
     pub fn version(mut self, version: HttpVersion) -> Self {
         self.version = Some(version);
         self
@@ -41,8 +42,10 @@ impl<Status> ResponseBuilder<Status> {
         }
     }
 
-    pub fn headers<T: Into<String>>(mut self, key: T, value: T) -> Self {
-        self.headers.push((key.into(), value.into()));
+    pub fn headers<T: Into<String>>(mut self, values: Vec<(T, T)>) -> Self {
+        for (k, v) in values {
+            self.headers.push((k.into(), v.into()));
+        }
         self
     }
 

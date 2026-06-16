@@ -64,7 +64,7 @@ impl Server {
             }
         };
 
-        self.handle_request(&request, stream, start);
+        Self::handle_request(&request, stream, start);
         Ok(())
     }
 
@@ -87,7 +87,7 @@ impl Server {
         Ok(request)
     }
 
-    fn handle_request(&self, request: &Request, mut stream: TcpStream, start: Instant) {
+    fn handle_request(request: &Request, mut stream: TcpStream, start: Instant) {
         let segments = request
             .request_line
             .target
@@ -97,6 +97,7 @@ impl Server {
 
         let response = match segments.as_slice() {
             [""] => Response::builder().status(HttpStatus::Ok).build(),
+            ["echo", msg] => Self::handle_echo(msg),
             _ => Response::builder().status(HttpStatus::NotFound).build(),
         };
 
@@ -105,6 +106,17 @@ impl Server {
         }
 
         Self::log_request(request, start);
+    }
+
+    fn handle_echo(msg: &str) -> Response {
+        Response::builder()
+            .status(HttpStatus::Ok)
+            .headers(vec![
+                ("Content-Type", "text/plain"),
+                ("Content-Length", &msg.len().to_string()),
+            ])
+            .body(msg)
+            .build()
     }
 
     fn log_request(req: &Request, start: Instant) {

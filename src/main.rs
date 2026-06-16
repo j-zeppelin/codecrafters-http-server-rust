@@ -29,4 +29,22 @@ mod tests {
         assert!(response.status().as_u16() == 404);
         Ok(())
     }
+
+    #[test]
+    fn echo_endpoint_returns_correct_body_and_headers() -> anyhow::Result<()> {
+        let response = reqwest::blocking::get(format!("{BASE_URL}/echo/abc"))?;
+
+        assert_eq!(
+            response.headers().get("Content-Type").unwrap().to_str()?,
+            "text/plain"
+        );
+
+        assert_eq!(
+            response.headers().get("Content-Length").unwrap().to_str()?,
+            "3"
+        );
+
+        assert_eq!(response.text()?, "abc");
+        Ok(())
+    }
 }
