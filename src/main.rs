@@ -1,13 +1,24 @@
-#[allow(unused_imports)]
-use std::net::TcpListener;
+use std::{env, path::PathBuf, sync::Arc};
 
 use crate::server::Server;
 
 mod server;
 
 fn main() {
-    let server = Server::new();
-    server.run();
+    let args: Vec<String> = env::args().collect();
+    let mut root_dir: Option<PathBuf> = None;
+    for arg in args.windows(2) {
+        if arg[0] == "--directory" {
+            root_dir = Some(args[1].clone().into());
+            break;
+        }
+    }
+
+    let root_dir =
+        root_dir.unwrap_or_else(|| env::current_dir().expect("failed to get current directory"));
+
+    let server = Server::new(root_dir);
+    Arc::new(server).run();
 }
 
 #[cfg(test)]

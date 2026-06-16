@@ -1,12 +1,18 @@
 use std::{
+    fs,
     io::{BufRead, BufReader, Write},
     net::{TcpListener, TcpStream},
+    path::PathBuf,
+    sync::Arc,
     time::Instant,
 };
 
 use anyhow::Result;
 
-use crate::server::{http::HttpStatus, response::Response};
+use crate::server::{
+    http::{HttpMethod, HttpStatus},
+    response::Response,
+};
 
 use self::request::Request;
 
@@ -18,24 +24,26 @@ const SERVER_ADDR: &str = "127.0.0.1:4221";
 
 pub struct Server {
     listener: TcpListener,
+    root_dir: PathBuf,
 }
 
 impl Server {
     /// panics if the `TcpListener` can not be bound to `SERVER_ADDR`
-    pub fn new() -> Self {
+    pub fn new(root_dir: PathBuf) -> Self {
         let listener = TcpListener::bind(SERVER_ADDR).unwrap_or_else(|e| {
             panic!("Failed to bind to {SERVER_ADDR}: {e}");
         });
 
-        Self { listener }
+        Self { listener, root_dir }
     }
 
-    pub fn run(&self) {
+    pub fn run(self: Arc<Self>) {
         for stream in self.listener.incoming() {
             match stream {
                 Ok(stream) => {
-                    std::thread::spawn(|| {
-                        if let Err(err) = Self::handle_connection(stream) {
+                    let server = Arc::clone(&self);
+                    std::thread::spawn(move || {
+                        if let Err(err) = server.handle_connection(stream) {
                             println!("{err}");
                         }
                     });
@@ -47,7 +55,7 @@ impl Server {
         }
     }
 
-    fn handle_connection(mut stream: TcpStream) -> Result<(), String> {
+    fn handle_connection(&self, mut stream: TcpStream) -> Result<(), String> {
         let start = Instant::now();
 
         // try to read the request from the stream
@@ -68,7 +76,7 @@ impl Server {
             }
         };
 
-        Self::handle_request(&request, stream, start);
+        self.handle_request(&request, stream, start);
         Ok(())
     }
 
@@ -91,7 +99,8 @@ impl Server {
         Ok(request)
     }
 
-    fn handle_request(request: &Request, mut stream: TcpStream, start: Instant) {
+    fn handle_request(&self, request: &Request, mut stream: TcpStream, start: Instant) {
+        let method = &request.line.method;
         let segments = request
             .line
             .target
@@ -101,8 +110,13 @@ impl Server {
 
         let response = match segments.as_slice() {
             [""] => Response::builder().status(HttpStatus::Ok).build(),
-            ["echo", msg] => Self::handle_echo(msg),
-            ["user-agent"] => Self::handle_user_agent(&request),
+            ["echo", msg] if matches!(method, HttpMethod::Get) => Self::handle_echo(msg),
+            ["user-agent"] if matches!(method, HttpMethod::Get) => {
+                Self::handle_user_agent(&request)
+            }
+            ["files", file_name] if matches!(method, HttpMethod::Get) => {
+                self.handle_files(file_name)
+            }
             _ => Response::builder().status(HttpStatus::NotFound).build(),
         };
 
@@ -143,6 +157,22 @@ impl Server {
                 ("Content-Length", &user_agent.len().to_string()),
             ])
             .body(*user_agent)
+            .build()
+    }
+
+    fn handle_files(&self, file_name: &str) -> Response {
+        let file_path = self.root_dir.join(file_name);
+        let Ok(contents) = fs::read_to_string(file_path) else {
+            return Response::builder().status(HttpStatus::NotFound).build();
+        };
+
+        Response::builder()
+            .status(HttpStatus::Ok)
+            .headers(vec![
+                ("Content-Type", "application/octet-stream"),
+                ("Content-Length", &contents.len().to_string()),
+            ])
+            .body(contents)
             .build()
     }
 
