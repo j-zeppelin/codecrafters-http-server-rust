@@ -9,7 +9,7 @@
   env.GREET = "devenv";
 
   # https://devenv.sh/packages/
-  packages = [pkgs.git pkgs.codecrafters-cli];
+  packages = with pkgs; [git codecrafters-cli bruno];
 
   # https://devenv.sh/languages/
   languages.rust = {

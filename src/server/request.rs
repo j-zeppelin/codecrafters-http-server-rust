@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display, time::SystemTime};
+use std::{collections::HashMap, fmt::Display, io::BufRead, time::SystemTime};
 
 use chrono::{DateTime, Utc};
 
@@ -39,14 +39,17 @@ impl Display for RequestLine<'_> {
     }
 }
 
+#[derive(Debug)]
 pub struct Request<'a> {
     pub line: RequestLine<'a>,
     pub headers: HashMap<String, &'a str>,
     pub timestamp: DateTime<Utc>,
+    pub body: Option<String>,
 }
 
 impl<'a> Request<'a> {
-    pub fn parse(buf: &'a str) -> Result<Request<'a>, String> {
+    // TODO: rewrite this
+    pub fn parse(mut reader: &mut impl BufRead) -> Result<Request<'a>, String> {
         let mut lines = buf.split("\r\n").peekable();
         if lines.peek().is_none() {
             return Err("empty request".to_string());
@@ -55,7 +58,9 @@ impl<'a> Request<'a> {
         let request_line = RequestLine::parse(lines.next().unwrap())?;
 
         let mut headers: HashMap<String, &str> = HashMap::new();
-        for line in lines {
+        let mut body_length = 0;
+
+        while let Some(line) = lines.next() {
             if line.is_empty() {
                 break;
             }
@@ -65,13 +70,23 @@ impl<'a> Request<'a> {
                 .ok_or(format!("malformed header: {line}"))?;
 
             let k = k.trim().to_lowercase();
+
+            if k == "content-length" {
+                if let Ok(length) = v.trim().parse::<usize>() {
+                    body_length = length;
+                }
+            }
+
             headers.insert(k, v.trim());
         }
+
+        let body = String::new();
 
         Ok(Self {
             line: request_line,
             headers,
             timestamp: SystemTime::now().into(),
+            body: Some(body),
         })
     }
 }

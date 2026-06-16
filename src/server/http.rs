@@ -27,6 +27,7 @@ impl TryFrom<&str> for HttpMethod {
 
 pub enum HttpStatus {
     Ok = 200,
+    Created = 201,
     BadRequest = 400,
     NotFound = 404,
     InternalServerError = 500,
@@ -36,6 +37,7 @@ impl HttpStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
             HttpStatus::Ok => "200 OK",
+            HttpStatus::Created => "201 Created",
             HttpStatus::BadRequest => "400 Bad Request",
             HttpStatus::NotFound => "404 Not Found",
             HttpStatus::InternalServerError => "500 Internal Server Error",

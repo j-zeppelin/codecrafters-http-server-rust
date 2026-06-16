@@ -1,6 +1,6 @@
 use std::{
     fs,
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     net::{TcpListener, TcpStream},
     path::PathBuf,
     sync::Arc,
@@ -78,30 +78,43 @@ impl Server {
             }
         };
 
-        self.handle_request(&request, stream, start);
+        self.handle_request(request, stream, start);
         Ok(())
     }
 
+    // TODO move this function into Request::parse
     fn read_request(stream: &TcpStream) -> Result<String, String> {
         let mut reader = BufReader::new(stream);
-        let mut request = String::new();
+        let mut headers = String::new();
 
         loop {
             let mut line = String::new();
             reader
                 .read_line(&mut line)
-                .map_err(|e| format!("could not read line from request: {e}"))?;
-
+                .map_err(|e| format!("could not read line: {e}"))?;
+            headers.push_str(&line);
             if line == "\r\n" {
                 break;
             }
-            request.push_str(&line);
         }
 
-        Ok(request)
+        let content_length = headers
+            .lines()
+            .find(|l| l.to_lowercase().starts_with("content-length:"))
+            .and_then(|l| l.split_once(':'))
+            .and_then(|(_, v)| v.trim().parse::<usize>().ok())
+            .unwrap_or(0);
+
+        let mut body = vec![0u8; content_length];
+        reader
+            .read_exact(&mut body)
+            .map_err(|e| format!("could not read body: {e}"))?;
+
+        let full_request = headers + &String::from_utf8_lossy(&body);
+        Ok(full_request)
     }
 
-    fn handle_request(&self, request: &Request, mut stream: TcpStream, start: Instant) {
+    fn handle_request(&self, request: Request, mut stream: TcpStream, start: Instant) {
         let method = &request.line.method;
         let segments = request
             .line
@@ -110,6 +123,8 @@ impl Server {
             .split('/')
             .collect::<Vec<_>>();
 
+        Self::log_request(&request, start);
+
         let response = match segments.as_slice() {
             [""] => Response::builder().status(HttpStatus::Ok).build(),
             ["echo", msg] if matches!(method, HttpMethod::Get) => Self::handle_echo(msg),
@@ -117,7 +132,10 @@ impl Server {
                 Self::handle_user_agent(&request)
             }
             ["files", file_name] if matches!(method, HttpMethod::Get) => {
-                self.handle_files(file_name)
+                self.handle_file_get(file_name)
+            }
+            ["files", file_name] if matches!(method, HttpMethod::Post) => {
+                self.handle_file_post(file_name, request)
             }
             _ => Response::builder().status(HttpStatus::NotFound).build(),
         };
@@ -125,8 +143,6 @@ impl Server {
         if let Err(err) = stream.write_all(response.to_string().as_bytes()) {
             eprintln!("could not write response: {err}");
         }
-
-        Self::log_request(request, start);
     }
 
     fn handle_echo(msg: &str) -> Response {
@@ -162,8 +178,26 @@ impl Server {
             .build()
     }
 
-    fn handle_files(&self, file_name: &str) -> Response {
+    fn handle_file_get(&self, file_name: &str) -> Response {
         let file_path = self.root_dir.join(file_name);
+        let Ok(contents) = fs::read_to_string(file_path) else {
+            return Response::builder().status(HttpStatus::NotFound).build();
+        };
+
+        Response::builder()
+            .status(HttpStatus::Ok)
+            .headers(vec![
+                ("Content-Type", "application/octet-stream"),
+                ("Content-Length", &contents.len().to_string()),
+            ])
+            .body(contents)
+            .build()
+    }
+
+    fn handle_file_post(&self, file_name: &str, request: Request) -> Response {
+        dbg!(request);
+        let file_path = self.root_dir.join(file_name);
+
         let Ok(contents) = fs::read_to_string(file_path) else {
             return Response::builder().status(HttpStatus::NotFound).build();
         };
