@@ -40,8 +40,8 @@ impl Display for RequestLine<'_> {
 }
 
 pub struct Request<'a> {
-    pub request_line: RequestLine<'a>,
-    pub headers: HashMap<&'a str, &'a str>,
+    pub line: RequestLine<'a>,
+    pub headers: HashMap<String, &'a str>,
     pub timestamp: DateTime<Utc>,
 }
 
@@ -54,7 +54,7 @@ impl<'a> Request<'a> {
 
         let request_line = RequestLine::parse(lines.next().unwrap())?;
 
-        let mut headers: HashMap<&str, &str> = HashMap::new();
+        let mut headers: HashMap<String, &str> = HashMap::new();
         for line in lines {
             if line.is_empty() {
                 break;
@@ -64,11 +64,12 @@ impl<'a> Request<'a> {
                 .split_once(':')
                 .ok_or(format!("malformed header: {line}"))?;
 
-            headers.insert(k.trim(), v.trim());
+            let k = k.trim().to_lowercase();
+            headers.insert(k, v.trim());
         }
 
         Ok(Self {
-            request_line,
+            line: request_line,
             headers,
             timestamp: SystemTime::now().into(),
         })
@@ -80,9 +81,9 @@ impl Display for Request<'_> {
         write!(
             f,
             "{} {} {}",
-            self.request_line.method.as_str(),
-            self.request_line.target,
-            self.request_line.http_version
+            self.line.method.as_str(),
+            self.line.target,
+            self.line.http_version
         )
     }
 }

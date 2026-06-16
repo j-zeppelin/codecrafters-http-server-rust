@@ -31,15 +31,16 @@ impl Server {
     pub fn run(&self) {
         for stream in self.listener.incoming() {
             match stream {
-                Ok(stream) => {
+                Ok(mut stream) => {
                     let start = Instant::now();
 
                     let request = match Self::read_request(&stream) {
                         Ok(req) => req,
                         Err(e) => {
                             Self::send_error(&mut stream, HttpStatus::InternalServerError, &e);
-                            eprintln!("failed to read request: {e}"));
-                        };
+                            eprintln!("failed to read request: {e}");
+                            continue;
+                        }
                     };
 
                     // actually try to parse the request
@@ -48,43 +49,17 @@ impl Server {
                         Err(e) => {
                             Self::send_error(&mut stream, HttpStatus::BadRequest, &e);
                             eprintln!("{e}");
+                            continue;
                         }
                     };
 
                     Self::handle_request(&request, stream, start);
-
-                    if let Err(err) = self.handle_stream(stream, start) {
-                        eprintln!("{err}");
-                    }
                 }
                 Err(e) => {
                     println!("error: {e}");
                 }
             }
         }
-    }
-
-    fn handle_stream(&self, mut stream: TcpStream, start: Instant) -> Result<(), String> {
-        // read request from stream
-        let request = match Self::read_request(&stream) {
-            Ok(req) => req,
-            Err(e) => {
-                Self::send_error(&mut stream, HttpStatus::InternalServerError, &e);
-                return Err(format!("failed to read request: {e}"));
-            }
-        };
-
-        // actually try to parse the request
-        let request = match Request::parse(&request) {
-            Ok(req) => req,
-            Err(e) => {
-                Self::send_error(&mut stream, HttpStatus::BadRequest, &e);
-                return Err(e);
-            }
-        };
-
-        Self::handle_request(&request, stream, start);
-        Ok(())
     }
 
     fn read_request(stream: &TcpStream) -> Result<String, String> {
@@ -108,7 +83,7 @@ impl Server {
 
     fn handle_request(request: &Request, mut stream: TcpStream, start: Instant) {
         let segments = request
-            .request_line
+            .line
             .target
             .trim_start_matches('/')
             .split('/')
@@ -117,6 +92,7 @@ impl Server {
         let response = match segments.as_slice() {
             [""] => Response::builder().status(HttpStatus::Ok).build(),
             ["echo", msg] => Self::handle_echo(msg),
+            ["user-agent"] => Self::handle_user_agent(&request),
             _ => Response::builder().status(HttpStatus::NotFound).build(),
         };
 
@@ -138,11 +114,33 @@ impl Server {
             .build()
     }
 
+    fn handle_user_agent(req: &Request) -> Response {
+        let Some(user_agent) = req.headers.get("user-agent") else {
+            return Response::builder()
+                .status(HttpStatus::BadRequest)
+                .headers(vec![
+                    ("Content-Type", "text/plain"),
+                    ("Content-Length", "27"),
+                ])
+                .body("User-Agent header not found")
+                .build();
+        };
+
+        Response::builder()
+            .status(HttpStatus::Ok)
+            .headers(vec![
+                ("Content-Type", "text/plain"),
+                ("Content-Length", &user_agent.len().to_string()),
+            ])
+            .body(*user_agent)
+            .build()
+    }
+
     fn log_request(req: &Request, start: Instant) {
         println!(
             "[{}] {} {:.3}s",
             req.timestamp.format("%Y-%m-%d %H:%M:%S"),
-            req.request_line,
+            req.line,
             start.elapsed().as_secs_f64()
         );
     }

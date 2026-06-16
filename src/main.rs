@@ -34,6 +34,8 @@ mod tests {
     fn echo_endpoint_returns_correct_body_and_headers() -> anyhow::Result<()> {
         let response = reqwest::blocking::get(format!("{BASE_URL}/echo/abc"))?;
 
+        assert!(response.status() == 200);
+
         assert_eq!(
             response.headers().get("Content-Type").unwrap().to_str()?,
             "text/plain"
@@ -45,6 +47,27 @@ mod tests {
         );
 
         assert_eq!(response.text()?, "abc");
+        Ok(())
+    }
+
+    #[test]
+    fn user_agent_endpoint_returns_correct_body_and_headers() -> anyhow::Result<()> {
+        let client = reqwest::blocking::Client::new();
+        let response = client
+            .get(format!("{BASE_URL}/user-agent"))
+            .header("User-Agent", "test-user-agent")
+            .send()?;
+
+        assert_eq!(
+            response.headers().get("Content-Type").unwrap().to_str()?,
+            "text/plain"
+        );
+        assert_eq!(
+            response.headers().get("Content-Length").unwrap().to_str()?,
+            "15"
+        );
+        assert_eq!(response.text()?, "test-user-agent");
+
         Ok(())
     }
 }
