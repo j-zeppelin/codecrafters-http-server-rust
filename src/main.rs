@@ -8,8 +8,8 @@ fn main() {
     let args: Vec<String> = env::args().collect();
     let mut root_dir: Option<PathBuf> = None;
     for arg in args.windows(2) {
-        if arg[0] == "--directory" {
-            root_dir = Some(args[1].clone().into());
+        if arg[1] == "--directory" {
+            root_dir = Some(args[2].clone().into());
             break;
         }
     }

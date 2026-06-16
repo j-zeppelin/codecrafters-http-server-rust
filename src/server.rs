@@ -34,6 +34,8 @@ impl Server {
             panic!("Failed to bind to {SERVER_ADDR}: {e}");
         });
 
+        println!("root directory set to {}", root_dir.display());
+        println!("server running on {SERVER_ADDR}");
         Self { listener, root_dir }
     }
 
