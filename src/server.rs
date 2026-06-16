@@ -4,6 +4,8 @@ use std::{
     time::Instant,
 };
 
+use anyhow::Result;
+
 use crate::server::{http::HttpStatus, response::Response};
 
 use self::request::Request;
@@ -31,35 +33,43 @@ impl Server {
     pub fn run(&self) {
         for stream in self.listener.incoming() {
             match stream {
-                Ok(mut stream) => {
-                    let start = Instant::now();
-
-                    let request = match Self::read_request(&stream) {
-                        Ok(req) => req,
-                        Err(e) => {
-                            Self::send_error(&mut stream, HttpStatus::InternalServerError, &e);
-                            eprintln!("failed to read request: {e}");
-                            continue;
+                Ok(stream) => {
+                    std::thread::spawn(|| {
+                        if let Err(err) = Self::handle_connection(stream) {
+                            println!("{err}");
                         }
-                    };
-
-                    // actually try to parse the request
-                    let request = match Request::parse(&request) {
-                        Ok(req) => req,
-                        Err(e) => {
-                            Self::send_error(&mut stream, HttpStatus::BadRequest, &e);
-                            eprintln!("{e}");
-                            continue;
-                        }
-                    };
-
-                    Self::handle_request(&request, stream, start);
+                    });
                 }
                 Err(e) => {
                     println!("error: {e}");
                 }
             }
         }
+    }
+
+    fn handle_connection(mut stream: TcpStream) -> Result<(), String> {
+        let start = Instant::now();
+
+        // try to read the request from the stream
+        let request = match Self::read_request(&stream) {
+            Ok(req) => req,
+            Err(e) => {
+                Self::send_error(&mut stream, HttpStatus::InternalServerError, &e);
+                return Err(format!("failed to read request: {e}"));
+            }
+        };
+
+        // actually try to parse the request
+        let request = match Request::parse(&request) {
+            Ok(req) => req,
+            Err(e) => {
+                Self::send_error(&mut stream, HttpStatus::BadRequest, &e);
+                return Err(format!("{e}"));
+            }
+        };
+
+        Self::handle_request(&request, stream, start);
+        Ok(())
     }
 
     fn read_request(stream: &TcpStream) -> Result<String, String> {
