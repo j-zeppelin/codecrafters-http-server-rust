@@ -1,47 +1,13 @@
-use std::io::{BufRead, BufReader, Read, Write};
 #[allow(unused_imports)]
 use std::net::TcpListener;
 
-use crate::request::Request;
+use crate::server::Server;
 
-mod request;
+mod server;
 
 fn main() {
-    // You can use print statements as follows for debugging, they'll be visible when running tests.
-    println!("Logs from your program will appear here!");
-
-    let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
-
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut stream) => {
-                let mut reader = BufReader::new(&stream);
-                let mut request = String::new();
-
-                loop {
-                    let mut line = String::new();
-                    reader.read_line(&mut line).unwrap();
-
-                    if line == "\r\n" {
-                        break;
-                    }
-                    request.push_str(&line);
-                }
-
-                let request = Request::parse(&request).unwrap();
-
-                let return_msg = match request.request_line.target {
-                    "/" => "HTTP/1.1 200 OK\r\n\r\n",
-                    _ => "HTTP/1.1 404 Not Found\r\n\r\n",
-                };
-
-                stream.write_all(return_msg.as_bytes()).unwrap();
-            }
-            Err(e) => {
-                println!("error: {}", e);
-            }
-        }
-    }
+    let server = Server::new();
+    server.run();
 }
 
 #[cfg(test)]

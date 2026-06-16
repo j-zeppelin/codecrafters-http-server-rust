@@ -26,14 +26,21 @@
   # services.postgres.enable = true;
 
   # https://devenv.sh/scripts/
-  scripts.hello.exec = ''
-    echo hello from $GREET
-  '';
+
+  scripts = {
+    runt.exec = ''
+      cargo run &
+      SERVER_PID=$!
+      trap "kill $SERVER_PID" EXIT
+      sleep 1
+      cargo test
+    '';
+  };
 
   # https://devenv.sh/basics/
   enterShell = ''
-    hello         # Run scripts directly
     git --version # Use packages
+    rustc --version
   '';
 
   # https://devenv.sh/tasks/
