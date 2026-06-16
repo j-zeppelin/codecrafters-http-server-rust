@@ -34,6 +34,25 @@ impl Server {
                 Ok(stream) => {
                     let start = Instant::now();
 
+                    let request = match Self::read_request(&stream) {
+                        Ok(req) => req,
+                        Err(e) => {
+                            Self::send_error(&mut stream, HttpStatus::InternalServerError, &e);
+                            eprintln!("failed to read request: {e}"));
+                        };
+                    };
+
+                    // actually try to parse the request
+                    let request = match Request::parse(&request) {
+                        Ok(req) => req,
+                        Err(e) => {
+                            Self::send_error(&mut stream, HttpStatus::BadRequest, &e);
+                            eprintln!("{e}");
+                        }
+                    };
+
+                    Self::handle_request(&request, stream, start);
+
                     if let Err(err) = self.handle_stream(stream, start) {
                         eprintln!("{err}");
                     }
