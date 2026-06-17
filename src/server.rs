@@ -60,17 +60,8 @@ impl Server {
     fn handle_connection(&self, mut stream: TcpStream) -> Result<(), String> {
         let start = Instant::now();
 
-        // try to read the request from the stream
-        let request = match Self::read_request(&stream) {
-            Ok(req) => req,
-            Err(e) => {
-                Self::send_error(&mut stream, HttpStatus::InternalServerError, &e);
-                return Err(format!("failed to read request: {e}"));
-            }
-        };
-
         // actually try to parse the request
-        let request = match Request::parse(&request) {
+        let request = match Request::parse(&mut BufReader::new(&stream)) {
             Ok(req) => req,
             Err(e) => {
                 Self::send_error(&mut stream, HttpStatus::BadRequest, &e);
@@ -92,7 +83,6 @@ impl Server {
             reader
                 .read_line(&mut line)
                 .map_err(|e| format!("could not read line: {e}"))?;
-            headers.push_str(&line);
             if line == "\r\n" {
                 break;
             }
@@ -174,7 +164,7 @@ impl Server {
                 ("Content-Type", "text/plain"),
                 ("Content-Length", &user_agent.len().to_string()),
             ])
-            .body(*user_agent)
+            .body(user_agent)
             .build()
     }
 
