@@ -25,6 +25,7 @@ impl TryFrom<&str> for HttpMethod {
     }
 }
 
+#[derive(Debug)]
 pub enum HttpStatus {
     Ok = 200,
     Created = 201,
@@ -45,6 +46,7 @@ impl HttpStatus {
     }
 }
 
+#[derive(Debug)]
 pub enum HttpVersion {
     Http11,
 }

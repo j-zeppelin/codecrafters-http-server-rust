@@ -84,7 +84,7 @@ impl Server {
 
         Self::log_request(&request, start);
 
-        let response = match segments.as_slice() {
+        let mut response = match segments.as_slice() {
             [""] => Response::builder().status(HttpStatus::Ok).build(),
             ["echo", msg] if matches!(method, HttpMethod::Get) => Self::handle_echo(msg),
             ["user-agent"] if matches!(method, HttpMethod::Get) => {
@@ -99,27 +99,41 @@ impl Server {
             _ => Response::builder().status(HttpStatus::NotFound).build(),
         };
 
-        let response: Response =
-            if let Some(accept_encoding) = request.headers.get("accept-encoding") {
-                if accept_encoding.contains("gzip") {
-                    let body = response.body.unwrap();
-                    Response::builder()
-                        .status(response.status)
+        // compress response if needed
+        let response = if let Some(accept_encoding) = request.headers.get("accept-encoding") {
+            if accept_encoding.contains("gzip") {
+                match response.compress_body() {
+                    Ok(compressed_body) => {
+                        let len = compressed_body.len();
+                        Response::builder()
+                            .status(response.status)
+                            .headers(vec![
+                                ("Content-Type", "text/plain"),
+                                ("Content-Length", &len.to_string()),
+                                ("Content-Encoding", "gzip"),
+                            ])
+                            .body(compressed_body)
+                            .build()
+                    }
+                    Err(err) => Response::builder()
+                        .status(HttpStatus::InternalServerError)
                         .headers(vec![
-                            ("Content-Type", "application/octet-stream"),
-                            ("Content-Length", &body.len().to_string()),
-                            ("Content-Encoding", "gzip"),
+                            ("Content-Type", "text/plain"),
+                            ("Content-Length", &err.len().to_string()),
                         ])
-                        .body(body)
-                        .build()
-                } else {
-                    response
+                        .body(err.into_bytes())
+                        .build(),
                 }
             } else {
                 response
-            };
+            }
+        } else {
+            response
+        };
 
-        if let Err(err) = stream.write_all(response.to_string().as_bytes()) {
+        dbg!(&response);
+
+        if let Err(err) = stream.write_all(&response.to_bytes()) {
             eprintln!("could not write response: {err}");
         }
     }
@@ -153,7 +167,7 @@ impl Server {
                 ("Content-Type", "text/plain"),
                 ("Content-Length", &user_agent.len().to_string()),
             ])
-            .body(user_agent)
+            .body(user_agent.as_bytes())
             .build()
     }
 
@@ -202,9 +216,12 @@ impl Server {
         );
     }
 
-    fn send_error(stream: &mut TcpStream, status: HttpStatus, message: impl Into<String>) {
-        let response = Response::builder().status(status).body(message).build();
-        if let Err(e) = stream.write_all(response.to_string().as_bytes()) {
+    fn send_error(stream: &mut TcpStream, status: HttpStatus, message: &str) {
+        let response = Response::builder()
+            .status(status)
+            .body(message.as_bytes())
+            .build();
+        if let Err(e) = stream.write_all(&response.to_bytes()) {
             eprintln!("could not write error response: {e}");
         }
     }

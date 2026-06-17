@@ -1,4 +1,7 @@
-use std::{fmt::Display, marker::PhantomData};
+use std::{io::Write, marker::PhantomData};
+
+use anyhow::Result;
+use flate2::{Compression, write::GzEncoder};
 
 use crate::server::http::{HttpStatus, HttpVersion};
 
@@ -9,7 +12,7 @@ pub struct ResponseBuilder<Status> {
     version: Option<HttpVersion>,
     status: Option<HttpStatus>,
     headers: Vec<(String, String)>,
-    body: Option<String>,
+    body: Option<Vec<u8>>,
     _status: PhantomData<Status>,
 }
 
@@ -50,7 +53,7 @@ impl<Status> ResponseBuilder<Status> {
         self
     }
 
-    pub fn body(mut self, body: impl Into<String>) -> Self {
+    pub fn body(mut self, body: impl Into<Vec<u8>>) -> Self {
         self.body = Some(body.into());
         self
     }
@@ -67,35 +70,46 @@ impl ResponseBuilder<Present> {
     }
 }
 
+#[derive(Debug)]
 pub struct Response {
     pub version: HttpVersion,
     pub status: HttpStatus,
     pub headers: Vec<(String, String)>,
-    pub body: Option<String>,
+    pub body: Option<Vec<u8>>,
 }
 
 impl Response {
     pub fn builder() -> ResponseBuilder<Missing> {
         ResponseBuilder::new()
     }
-}
 
-impl Display for Response {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    pub fn compress_body(&mut self) -> Result<Vec<u8>, String> {
+        if let Some(body) = &self.body {
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            encoder
+                .write_all(&body)
+                .map_err(|e| format!("could not encode body: {e}"))?;
+            return encoder.finish().map_err(|e| e.to_string());
+        }
+        Err("no body to compress".to_string())
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
         let headers: String = self
             .headers
             .iter()
             .map(|(k, v)| format!("{k}: {v}\r\n"))
             .collect();
 
-        let result = format!(
-            "{} {}\r\n{}\r\n{}",
-            self.version.as_str(),
-            self.status.as_str(),
-            headers,
-            self.body.as_ref().map_or("", |v| v)
-        );
+        let status_line = format!("{} {}\r\n", self.version.as_str(), self.status.as_str());
 
-        write!(f, "{result}")
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(status_line.as_bytes());
+        bytes.extend_from_slice(headers.as_bytes());
+        bytes.extend_from_slice(b"\r\n");
+        if let Some(body) = &self.body {
+            bytes.extend_from_slice(body);
+        }
+        bytes
     }
 }
