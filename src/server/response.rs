@@ -43,9 +43,10 @@ impl<Status> ResponseBuilder<Status> {
     }
 
     pub fn headers<T: Into<String>>(mut self, values: Vec<(T, T)>) -> Self {
-        for (k, v) in values {
-            self.headers.push((k.into(), v.into()));
-        }
+        self.headers = values
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect();
         self
     }
 

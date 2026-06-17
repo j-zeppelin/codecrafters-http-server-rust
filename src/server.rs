@@ -99,6 +99,26 @@ impl Server {
             _ => Response::builder().status(HttpStatus::NotFound).build(),
         };
 
+        let response: Response =
+            if let Some(accept_encoding) = request.headers.get("accept-encoding") {
+                if accept_encoding.contains("gzip") {
+                    let body = response.body.unwrap();
+                    Response::builder()
+                        .status(response.status)
+                        .headers(vec![
+                            ("Content-Type", "application/octet-stream"),
+                            ("Content-Length", &body.len().to_string()),
+                            ("Content-Encoding", "gzip"),
+                        ])
+                        .body(body)
+                        .build()
+                } else {
+                    response
+                }
+            } else {
+                response
+            };
+
         if let Err(err) = stream.write_all(response.to_string().as_bytes()) {
             eprintln!("could not write response: {err}");
         }

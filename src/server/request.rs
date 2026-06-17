@@ -1,9 +1,4 @@
-use std::{
-    collections::HashMap,
-    fmt::{Display, format},
-    io::BufRead,
-    time::SystemTime,
-};
+use std::{collections::HashMap, fmt::Display, io::BufRead, time::SystemTime};
 
 use chrono::{DateTime, Utc};
 
@@ -57,7 +52,6 @@ pub struct Request {
 }
 
 impl Request {
-    // TODO: rewrite this
     pub fn parse(reader: &mut impl BufRead) -> Result<Self, String> {
         let mut headers = HashMap::new();
         let mut lines = reader.lines().peekable();
@@ -95,7 +89,7 @@ impl Request {
                         .to_string(),
                 )
             } else {
-                return Err("Invalid content length".to_string());
+                return Err("invalid content length".to_string());
             }
         } else {
             None
