@@ -87,7 +87,7 @@ impl Response {
         if let Some(body) = &self.body {
             let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
             encoder
-                .write_all(&body)
+                .write_all(body)
                 .map_err(|e| format!("could not encode body: {e}"))?;
             return encoder.finish().map_err(|e| e.to_string());
         }

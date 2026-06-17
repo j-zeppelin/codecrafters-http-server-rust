@@ -58,7 +58,7 @@ impl Request {
 
         if lines.peek().is_none() {
             return Err("empty request".to_string());
-        };
+        }
 
         let request_line = RequestLine::parse(lines.next().unwrap().unwrap().as_str())?;
 

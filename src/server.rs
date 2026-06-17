@@ -7,8 +7,6 @@ use std::{
     time::Instant,
 };
 
-use anyhow::Result;
-
 use crate::server::{
     http::{HttpMethod, HttpStatus},
     response::Response,
@@ -42,12 +40,29 @@ impl Server {
     pub fn run(self: Arc<Self>) {
         for stream in self.listener.incoming() {
             match stream {
-                Ok(stream) => {
+                Ok(mut stream) => {
                     let server = Arc::clone(&self);
                     std::thread::spawn(move || {
-                        if let Err(err) = server.handle_connection(stream) {
-                            println!("{err}");
-                        }
+                        let start = Instant::now();
+
+                        // try to parse the request
+                        let request = match Request::parse(&mut BufReader::new(&stream)) {
+                            Ok(req) => req,
+                            Err(e) => {
+                                // send bad 400 Bad Request if parsing fails
+                                let response = Response::builder()
+                                    .status(HttpStatus::BadRequest)
+                                    .body(e.as_bytes())
+                                    .build();
+                                if let Err(e) = stream.write_all(&response.to_bytes()) {
+                                    eprintln!("could not write error response: {e}");
+                                }
+                                return Err(e);
+                            }
+                        };
+
+                        server.handle_request(&request, stream, start);
+                        Ok(())
                     });
                 }
                 Err(e) => {
@@ -57,44 +72,24 @@ impl Server {
         }
     }
 
-    fn handle_connection(&self, mut stream: TcpStream) -> Result<(), String> {
-        let start = Instant::now();
-
-        // try to parse the request
-        let request = match Request::parse(&mut BufReader::new(&stream)) {
-            Ok(req) => req,
-            Err(e) => {
-                Self::send_error(&mut stream, HttpStatus::BadRequest, &e);
-                return Err(format!("{e}"));
-            }
-        };
-
-        self.handle_request(request, stream, start);
-        Ok(())
-    }
-
-    fn handle_request(&self, request: Request, mut stream: TcpStream, start: Instant) {
+    fn handle_request(&self, request: &Request, mut stream: TcpStream, start: Instant) {
         let method = &request.line.method;
-        let segments = &request
+        let segments = request
             .line
             .target
             .trim_start_matches('/')
             .split('/')
             .collect::<Vec<_>>();
 
-        Self::log_request(&request, start);
-
         let mut response = match segments.as_slice() {
             [""] => Response::builder().status(HttpStatus::Ok).build(),
             ["echo", msg] if matches!(method, HttpMethod::Get) => Self::handle_echo(msg),
-            ["user-agent"] if matches!(method, HttpMethod::Get) => {
-                Self::handle_user_agent(&request)
-            }
+            ["user-agent"] if matches!(method, HttpMethod::Get) => Self::handle_user_agent(request),
             ["files", file_name] if matches!(method, HttpMethod::Get) => {
                 self.handle_file_get(file_name)
             }
             ["files", file_name] if matches!(method, HttpMethod::Post) => {
-                self.handle_file_post(file_name, &request)
+                self.handle_file_post(file_name, request)
             }
             _ => Response::builder().status(HttpStatus::NotFound).build(),
         };
@@ -131,7 +126,7 @@ impl Server {
             response
         };
 
-        dbg!(&response);
+        Self::log_request(request, start);
 
         if let Err(err) = stream.write_all(&response.to_bytes()) {
             eprintln!("could not write response: {err}");
@@ -214,15 +209,5 @@ impl Server {
             req.line,
             start.elapsed().as_secs_f64()
         );
-    }
-
-    fn send_error(stream: &mut TcpStream, status: HttpStatus, message: &str) {
-        let response = Response::builder()
-            .status(status)
-            .body(message.as_bytes())
-            .build();
-        if let Err(e) = stream.write_all(&response.to_bytes()) {
-            eprintln!("could not write error response: {e}");
-        }
     }
 }
