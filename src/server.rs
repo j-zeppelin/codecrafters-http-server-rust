@@ -1,6 +1,6 @@
 use std::{
     fs,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufReader, Write},
     net::{TcpListener, TcpStream},
     path::PathBuf,
     sync::Arc,
@@ -60,7 +60,7 @@ impl Server {
     fn handle_connection(&self, mut stream: TcpStream) -> Result<(), String> {
         let start = Instant::now();
 
-        // actually try to parse the request
+        // try to parse the request
         let request = match Request::parse(&mut BufReader::new(&stream)) {
             Ok(req) => req,
             Err(e) => {
@@ -73,40 +73,9 @@ impl Server {
         Ok(())
     }
 
-    // TODO move this function into Request::parse
-    fn read_request(stream: &TcpStream) -> Result<String, String> {
-        let mut reader = BufReader::new(stream);
-        let mut headers = String::new();
-
-        loop {
-            let mut line = String::new();
-            reader
-                .read_line(&mut line)
-                .map_err(|e| format!("could not read line: {e}"))?;
-            if line == "\r\n" {
-                break;
-            }
-        }
-
-        let content_length = headers
-            .lines()
-            .find(|l| l.to_lowercase().starts_with("content-length:"))
-            .and_then(|l| l.split_once(':'))
-            .and_then(|(_, v)| v.trim().parse::<usize>().ok())
-            .unwrap_or(0);
-
-        let mut body = vec![0u8; content_length];
-        reader
-            .read_exact(&mut body)
-            .map_err(|e| format!("could not read body: {e}"))?;
-
-        let full_request = headers + &String::from_utf8_lossy(&body);
-        Ok(full_request)
-    }
-
     fn handle_request(&self, request: Request, mut stream: TcpStream, start: Instant) {
         let method = &request.line.method;
-        let segments = request
+        let segments = &request
             .line
             .target
             .trim_start_matches('/')
@@ -125,7 +94,7 @@ impl Server {
                 self.handle_file_get(file_name)
             }
             ["files", file_name] if matches!(method, HttpMethod::Post) => {
-                self.handle_file_post(file_name, request)
+                self.handle_file_post(file_name, &request)
             }
             _ => Response::builder().status(HttpStatus::NotFound).build(),
         };
@@ -184,22 +153,24 @@ impl Server {
             .build()
     }
 
-    fn handle_file_post(&self, file_name: &str, request: Request) -> Response {
-        dbg!(request);
+    fn handle_file_post(&self, file_name: &str, request: &Request) -> Response {
         let file_path = self.root_dir.join(file_name);
 
-        let Ok(contents) = fs::read_to_string(file_path) else {
-            return Response::builder().status(HttpStatus::NotFound).build();
+        let Some(body) = request.body.as_ref() else {
+            return Response::builder()
+                .status(HttpStatus::BadRequest)
+                .body("empty body")
+                .build();
         };
 
-        Response::builder()
-            .status(HttpStatus::Ok)
-            .headers(vec![
-                ("Content-Type", "application/octet-stream"),
-                ("Content-Length", &contents.len().to_string()),
-            ])
-            .body(contents)
-            .build()
+        if let Err(err) = fs::write(file_path, body) {
+            return Response::builder()
+                .status(HttpStatus::InternalServerError)
+                .body(format!("could not write to file: {err}"))
+                .build();
+        }
+
+        Response::builder().status(HttpStatus::Created).build()
     }
 
     fn log_request(req: &Request, start: Instant) {

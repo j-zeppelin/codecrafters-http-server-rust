@@ -10,19 +10,23 @@ use chrono::{DateTime, Utc};
 use crate::server::http::HttpMethod;
 
 #[derive(Debug)]
-pub struct RequestLine<'a> {
+pub struct RequestLine {
     pub method: HttpMethod,
-    pub target: &'a str,
-    pub http_version: &'a str,
+    pub target: String,
+    pub http_version: String,
 }
 
-impl<'a> RequestLine<'a> {
-    fn parse(line: &'a str) -> Result<RequestLine<'a>, String> {
+impl RequestLine {
+    fn parse(line: &str) -> Result<RequestLine, String> {
         let parts: Vec<_> = line.split_whitespace().collect();
 
+        if parts.len() != 3 {
+            return Err("invalid request line".to_string());
+        }
+
         let method = HttpMethod::try_from(parts[0])?;
-        let target = parts[1];
-        let http_version = parts[2];
+        let target = parts[1].to_string();
+        let http_version = parts[2].to_string();
 
         Ok(Self {
             method,
@@ -32,7 +36,7 @@ impl<'a> RequestLine<'a> {
     }
 }
 
-impl Display for RequestLine<'_> {
+impl Display for RequestLine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -45,27 +49,26 @@ impl Display for RequestLine<'_> {
 }
 
 #[derive(Debug)]
-pub struct Request<'a> {
-    pub line: RequestLine<'a>,
+pub struct Request {
+    pub line: RequestLine,
     pub headers: HashMap<String, String>,
     pub timestamp: DateTime<Utc>,
     pub body: Option<String>,
 }
 
-impl<'a> Request<'a> {
+impl Request {
     // TODO: rewrite this
-    pub fn parse(mut reader: &mut impl BufRead) -> Result<Request<'a>, String> {
+    pub fn parse(reader: &mut impl BufRead) -> Result<Self, String> {
         let mut headers = HashMap::new();
-        let mut body = String::new();
-
         let mut lines = reader.lines().peekable();
 
         if lines.peek().is_none() {
             return Err("empty request".to_string());
         };
 
-        let request_line = RequestLine::parse(&lines.next().unwrap().unwrap())?;
-        // headers
+        let request_line = RequestLine::parse(lines.next().unwrap().unwrap().as_str())?;
+
+        // parse headers
         while let Some(Ok(line)) = lines.next() {
             if line.is_empty() {
                 break;
@@ -79,51 +82,35 @@ impl<'a> Request<'a> {
             headers.insert(k, v);
         }
 
-        while let Some(Ok(line)) = lines.next() {
-            dbg!(&line);
-            body.push_str(&line);
-        }
+        // parse body
+        let body: Option<String> = if let Some(content_length) = headers.get("content-length") {
+            if let Ok(length) = content_length.parse::<usize>() {
+                let mut buf = vec![0; length];
+                reader
+                    .read_exact(&mut buf)
+                    .map_err(|e| format!("could not read body: {e}"))?;
+                Some(
+                    std::str::from_utf8(&buf)
+                        .map_err(|e| format!("invalid UTF-8: {e}"))?
+                        .to_string(),
+                )
+            } else {
+                return Err("Invalid content length".to_string());
+            }
+        } else {
+            None
+        };
 
-        dbg!(headers);
-        dbg!(body);
-
-        todo!()
-
-        // let mut headers: HashMap<String, &str> = HashMap::new();
-        // let mut body_length = 0;
-        //
-        // while let Some(line) = lines.next() {
-        //     if line.is_empty() {
-        //         break;
-        //     }
-        //
-        //     let (k, v) = line
-        //         .split_once(':')
-        //         .ok_or(format!("malformed header: {line}"))?;
-        //
-        //     let k = k.trim().to_lowercase();
-        //
-        //     if k == "content-length" {
-        //         if let Ok(length) = v.trim().parse::<usize>() {
-        //             body_length = length;
-        //         }
-        //     }
-        //
-        //     headers.insert(k, v.trim());
-        // }
-        //
-        // let body = String::new();
-        //
-        // Ok(Self {
-        //     line: request_line,
-        //     headers,
-        //     timestamp: SystemTime::now().into(),
-        //     body: Some(body),
-        // })
+        Ok(Self {
+            line: request_line,
+            headers,
+            timestamp: SystemTime::now().into(),
+            body,
+        })
     }
 }
 
-impl Display for Request<'_> {
+impl Display for Request {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
