@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::server::{
-    http::{HttpMethod, HttpStatus},
+    http::{HttpMethod, HttpStatus, HttpVersion},
     response::Response,
 };
 
@@ -54,9 +54,8 @@ impl Server {
                                     .status(HttpStatus::BadRequest)
                                     .body(e.as_bytes())
                                     .build();
-                                if let Err(e) = stream.write_all(&response.to_bytes()) {
-                                    eprintln!("could not write error response: {e}");
-                                }
+
+                                Self::send_response(&mut stream, response);
                                 return Err(e);
                             }
                         };
@@ -100,52 +99,14 @@ impl Server {
             }
         }
 
-        // compress response if needed
-        // let response = if let Some(accept_encoding) = request.headers.get("accept-encoding") {
-        //     if accept_encoding.contains("gzip") {
-        //         match response.compress_body() {
-        //             Ok(compressed_body) => {
-        //                 let len = compressed_body.len();
-        //                 Response::builder()
-        //                     .status(response.status)
-        //                     .headers(vec![
-        //                         ("Content-Type", "text/plain"),
-        //                         ("Content-Length", &len.to_string()),
-        //                         ("Content-Encoding", "gzip"),
-        //                     ])
-        //                     .body(compressed_body)
-        //                     .build()
-        //             }
-        //             Err(err) => Response::builder()
-        //                 .status(HttpStatus::InternalServerError)
-        //                 .headers(vec![
-        //                     ("Content-Type", "text/plain"),
-        //                     ("Content-Length", &err.len().to_string()),
-        //                 ])
-        //                 .body(err.into_bytes())
-        //                 .build(),
-        //         }
-        //     } else {
-        //         response
-        //     }
-        // } else {
-        //     response
-        // };
-
         Self::log_request(request, start);
-
-        if let Err(err) = stream.write_all(&response.to_bytes()) {
-            eprintln!("could not write response: {err}");
-        }
+        Self::send_response(&mut stream, response);
     }
 
     fn handle_echo(msg: &str) -> Response {
         Response::builder()
             .status(HttpStatus::Ok)
-            .headers(vec![
-                ("Content-Type", "text/plain"),
-                ("Content-Length", &msg.len().to_string()),
-            ])
+            .headers(vec![("Content-Type", "text/plain")])
             .body(msg)
             .build()
     }
@@ -154,20 +115,14 @@ impl Server {
         let Some(user_agent) = req.headers.get("user-agent") else {
             return Response::builder()
                 .status(HttpStatus::BadRequest)
-                .headers(vec![
-                    ("Content-Type", "text/plain"),
-                    ("Content-Length", "27"),
-                ])
+                .headers(vec![("Content-Type", "text/plain")])
                 .body("User-Agent header not found")
                 .build();
         };
 
         Response::builder()
             .status(HttpStatus::Ok)
-            .headers(vec![
-                ("Content-Type", "text/plain"),
-                ("Content-Length", &user_agent.len().to_string()),
-            ])
+            .headers(vec![("Content-Type", "text/plain")])
             .body(user_agent.as_bytes())
             .build()
     }
@@ -180,10 +135,7 @@ impl Server {
 
         Response::builder()
             .status(HttpStatus::Ok)
-            .headers(vec![
-                ("Content-Type", "application/octet-stream"),
-                ("Content-Length", &contents.len().to_string()),
-            ])
+            .headers(vec![("Content-Type", "application/octet-stream")])
             .body(contents)
             .build()
     }
@@ -215,5 +167,26 @@ impl Server {
             req.line,
             start.elapsed().as_secs_f64()
         );
+    }
+
+    fn send_response(stream: &mut TcpStream, response: Response) {
+        let bytes = match response.try_into_bytes() {
+            Ok(b) => b,
+            Err(e) => {
+                let raw_res = format!(
+                    "{} {}\r\nContent-Length: {}\r\n{}",
+                    HttpVersion::Http11.as_str(),
+                    HttpStatus::InternalServerError.as_str(),
+                    e.len().to_string(),
+                    e.to_string()
+                );
+
+                raw_res.into_bytes()
+            }
+        };
+
+        if let Err(err) = stream.write_all(&bytes) {
+            eprintln!("could not write response: {err}");
+        }
     }
 }

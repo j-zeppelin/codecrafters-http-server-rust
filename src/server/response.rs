@@ -1,4 +1,4 @@
-use std::{io::Write, marker::PhantomData};
+use std::{collections::HashMap, io::Write, marker::PhantomData};
 
 use anyhow::Result;
 use flate2::{Compression, write::GzEncoder};
@@ -11,7 +11,7 @@ pub struct Present;
 pub struct ResponseBuilder<Status> {
     version: Option<HttpVersion>,
     status: Option<HttpStatus>,
-    headers: Vec<(String, String)>,
+    headers: HashMap<String, String>,
     body: Option<Vec<u8>>,
     _status: PhantomData<Status>,
 }
@@ -21,7 +21,7 @@ impl ResponseBuilder<Missing> {
         Self {
             version: None,
             status: None,
-            headers: vec![],
+            headers: HashMap::new(),
             body: None,
             _status: PhantomData,
         }
@@ -74,7 +74,7 @@ impl ResponseBuilder<Present> {
 pub struct Response {
     pub version: HttpVersion,
     pub status: HttpStatus,
-    pub headers: Vec<(String, String)>,
+    pub headers: HashMap<String, String>,
     pub body: Option<Vec<u8>>,
 }
 
@@ -84,42 +84,47 @@ impl Response {
     }
 
     pub fn add_header<T: Into<String>>(&mut self, key: T, value: T) {
-        self.headers.push((key.into(), value.into()));
+        self.headers.insert(key.into(), value.into());
     }
 
-    pub fn compress_body(&mut self) -> Result<Vec<u8>, String> {
-        if let Some(body) = &self.body {
-            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-            encoder
-                .write_all(body)
-                .map_err(|e| format!("could not encode body: {e}"))?;
-            return encoder.finish().map_err(|e| e.to_string());
-        }
-        Err("no body to compress".to_string())
-    }
+    pub fn try_into_bytes(self) -> Result<Vec<u8>, String> {
+        let status_line = format!("{} {}\r\n", self.version.as_str(), self.status.as_str());
 
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let headers: String = self
+        let body: Option<Vec<u8>> = match self.headers.get("Content-Encoding") {
+            Some(content_encoding) if content_encoding.contains("gzip") && self.body.is_some() => {
+                let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+                encoder
+                    .write_all(&self.body.as_ref().unwrap())
+                    .map_err(|e| format!("could not encode body: {e}"))?;
+
+                encoder.finish().map_err(|e| e.to_string()).ok()
+            }
+            _ => self.body,
+        };
+
+        let mut headers: String = self
             .headers
             .iter()
+            .filter(|(k, _)| k.to_lowercase() != "content-length")
             .map(|(k, v)| format!("{k}: {v}\r\n"))
             .collect();
 
-        let status_line = format!("{} {}\r\n", self.version.as_str(), self.status.as_str());
-
-        let body = if let Some(content_encoding) = self.headers. {
-            
-        } else {
-            
-        };
+        if let Some(ref body) = body {
+            eprintln!("body len: {}", body.len());
+            headers.push_str(&format!("Content-Length: {}\r\n", &body.len().to_string()));
+        }
 
         let mut bytes = Vec::new();
         bytes.extend_from_slice(status_line.as_bytes());
         bytes.extend_from_slice(headers.as_bytes());
         bytes.extend_from_slice(b"\r\n");
-        if let Some(body) = &self.body {
-            bytes.extend_from_slice(body);
+        if let Some(body) = body {
+            bytes.extend_from_slice(&body);
         }
-        bytes
+
+        eprintln!("total bytes: {}", bytes.len());
+        eprintln!("headers:\n{}{}", status_line, headers);
+
+        Ok(bytes)
     }
 }
