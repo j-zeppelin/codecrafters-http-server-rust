@@ -1,7 +1,8 @@
-use std::{collections::HashMap, io::Write, marker::PhantomData};
+use std::{collections::HashMap, io::Write as _, marker::PhantomData};
 
 use anyhow::Result;
 use flate2::{Compression, write::GzEncoder};
+use std::fmt::Write;
 
 use crate::server::http::{HttpStatus, HttpVersion};
 
@@ -94,7 +95,7 @@ impl Response {
             Some(content_encoding) if content_encoding.contains("gzip") && self.body.is_some() => {
                 let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
                 encoder
-                    .write_all(&self.body.as_ref().unwrap())
+                    .write_all(self.body.as_ref().unwrap())
                     .map_err(|e| format!("could not encode body: {e}"))?;
 
                 encoder.finish().map_err(|e| e.to_string()).ok()
@@ -110,8 +111,7 @@ impl Response {
             .collect();
 
         if let Some(ref body) = body {
-            eprintln!("body len: {}", body.len());
-            headers.push_str(&format!("Content-Length: {}\r\n", &body.len().to_string()));
+            let _ = write!(headers, "Content-Length: {}\r\n", &body.len().to_string());
         }
 
         let mut bytes = Vec::new();
@@ -121,9 +121,6 @@ impl Response {
         if let Some(body) = body {
             bytes.extend_from_slice(&body);
         }
-
-        eprintln!("total bytes: {}", bytes.len());
-        eprintln!("headers:\n{}{}", status_line, headers);
 
         Ok(bytes)
     }

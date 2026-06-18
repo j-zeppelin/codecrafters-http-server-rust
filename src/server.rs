@@ -93,10 +93,10 @@ impl Server {
             _ => Response::builder().status(HttpStatus::NotFound).build(),
         };
 
-        if let Some(accept_encoding) = request.headers.get("accept-encoding") {
-            if accept_encoding.contains("gzip") {
-                response.add_header("Content-Encoding", "gzip");
-            }
+        if let Some(accept_encoding) = request.headers.get("accept-encoding")
+            && accept_encoding.contains("gzip")
+        {
+            response.add_header("Content-Encoding", "gzip");
         }
 
         Self::log_request(request, start);
@@ -177,8 +177,8 @@ impl Server {
                     "{} {}\r\nContent-Length: {}\r\n{}",
                     HttpVersion::Http11.as_str(),
                     HttpStatus::InternalServerError.as_str(),
-                    e.len().to_string(),
-                    e.to_string()
+                    e.len(),
+                    e
                 );
 
                 raw_res.into_bytes()
