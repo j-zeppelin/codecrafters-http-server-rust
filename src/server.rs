@@ -94,37 +94,43 @@ impl Server {
             _ => Response::builder().status(HttpStatus::NotFound).build(),
         };
 
-        // compress response if needed
-        let response = if let Some(accept_encoding) = request.headers.get("accept-encoding") {
+        if let Some(accept_encoding) = request.headers.get("accept-encoding") {
             if accept_encoding.contains("gzip") {
-                match response.compress_body() {
-                    Ok(compressed_body) => {
-                        let len = compressed_body.len();
-                        Response::builder()
-                            .status(response.status)
-                            .headers(vec![
-                                ("Content-Type", "text/plain"),
-                                ("Content-Length", &len.to_string()),
-                                ("Content-Encoding", "gzip"),
-                            ])
-                            .body(compressed_body)
-                            .build()
-                    }
-                    Err(err) => Response::builder()
-                        .status(HttpStatus::InternalServerError)
-                        .headers(vec![
-                            ("Content-Type", "text/plain"),
-                            ("Content-Length", &err.len().to_string()),
-                        ])
-                        .body(err.into_bytes())
-                        .build(),
-                }
-            } else {
-                response
+                response.add_header("Content-Encoding", "gzip");
             }
-        } else {
-            response
-        };
+        }
+
+        // compress response if needed
+        // let response = if let Some(accept_encoding) = request.headers.get("accept-encoding") {
+        //     if accept_encoding.contains("gzip") {
+        //         match response.compress_body() {
+        //             Ok(compressed_body) => {
+        //                 let len = compressed_body.len();
+        //                 Response::builder()
+        //                     .status(response.status)
+        //                     .headers(vec![
+        //                         ("Content-Type", "text/plain"),
+        //                         ("Content-Length", &len.to_string()),
+        //                         ("Content-Encoding", "gzip"),
+        //                     ])
+        //                     .body(compressed_body)
+        //                     .build()
+        //             }
+        //             Err(err) => Response::builder()
+        //                 .status(HttpStatus::InternalServerError)
+        //                 .headers(vec![
+        //                     ("Content-Type", "text/plain"),
+        //                     ("Content-Length", &err.len().to_string()),
+        //                 ])
+        //                 .body(err.into_bytes())
+        //                 .build(),
+        //         }
+        //     } else {
+        //         response
+        //     }
+        // } else {
+        //     response
+        // };
 
         Self::log_request(request, start);
 

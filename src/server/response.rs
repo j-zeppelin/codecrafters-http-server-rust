@@ -83,6 +83,10 @@ impl Response {
         ResponseBuilder::new()
     }
 
+    pub fn add_header<T: Into<String>>(&mut self, key: T, value: T) {
+        self.headers.push((key.into(), value.into()));
+    }
+
     pub fn compress_body(&mut self) -> Result<Vec<u8>, String> {
         if let Some(body) = &self.body {
             let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
@@ -102,6 +106,12 @@ impl Response {
             .collect();
 
         let status_line = format!("{} {}\r\n", self.version.as_str(), self.status.as_str());
+
+        let body = if let Some(content_encoding) = self.headers. {
+            
+        } else {
+            
+        };
 
         let mut bytes = Vec::new();
         bytes.extend_from_slice(status_line.as_bytes());
